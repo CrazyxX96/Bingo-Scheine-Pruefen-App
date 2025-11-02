@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Bingoscheine Prüfen</title>
+<meta name="color-scheme" content="light dark" />
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js" crossorigin="anonymous"></script>
+<style>
+  :root{--bg:#f7f7f8;--card:#ffffff;--text:#111;--muted:#6b7280;--line:#e5e7eb;--accent:#111;--radius:16px;--hit:#ffff00;--status-neutral:#f3f4f6;--status-neutral-border:#e5e7eb;--status-win:#fff7ae;--status-win-border:#f1e58f;--error:#ef4444;--mini-cell:44px;--mini-head:36px;--handle:#00BCD4;--space-xs:8px;--title-size:24px;--bingo-green:#8BC34A;--title-blue:#2F55A4}
+  @media (prefers-color-scheme: dark){:root{--bg:#0b0c0f;--card:#121419;--text:#f3f4f6;--muted:#9aa0a6;--line:#22252b;--accent:#fafafa;--status-neutral:#1f2937;--status-neutral-border:#374151;--status-win:#3a3400;--status-win-border:#5a5200}}
+  @media (max-width:480px){:root{--mini-cell:36px;--mini-head:30px;--title-size:22px}}
+  *{box-sizing:border-box}
+  .stack-xs>*+*{margin-top:var(--space-xs)}
+  .spacer{height:var(--space-xs)}
+  .grid.headless{margin-top:0!important}
+  body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  .app{min-height:100dvh;background:var(--bg);padding-bottom:84px}
+  header{position:sticky;top:0;background:color-mix(in oklab,var(--card) 85%,transparent);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid var(--line);z-index:10}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px;text-align:center}
+  h1{margin:0;font-size:20px;color:var(--text)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 4px 18px rgba(0,0,0,.06)}
+  .card .inner{padding:16px}
+  .subtitle{color:var(--muted);margin-top:2px;font-size:14px}
+  .card .inner h2,.card .inner h3,.title-row h2,.title-row h3{font-size:var(--title-size);line-height:1.25;margin:0 0 6px 0;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:2px}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr)}
+  .grid .head{text-align:center;font-weight:700;color:#fff;background:var(--accent);padding:10px 0}
+  .grid .cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .grid .cell:nth-child(5n){border-right:0}
+  .grid input{width:100%;height:48px;border:0;text-align:center;font-weight:600;font-size:18px;background:transparent;color:var(--text);outline:none}
+  .grid input.invalid{border:2px solid var(--error);border-radius:10px;background:color-mix(in oklab,var(--error) 6%,transparent)}
+  .hit{background:var(--hit)}
+  .mini-head{grid-column:1/6;display:grid;grid-template-columns:repeat(5,1fr)}
+  .mini-head span{background:var(--accent);color:#fff;font-weight:700;height:var(--mini-head);display:flex;align-items:center;justify-content:center}
+  .board-mini{position:relative;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:var(--mini-cell);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .board-mini div{display:flex;align-items:center;justify-content:center;border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-weight:600}
+  .board-mini div:nth-child(5n){border-right:0}
+  .win-lines{position:absolute;inset:0;pointer-events:none}
+  .picker{display:grid;grid-template-columns:repeat(5,1fr)}
+  .picker .head{text-align:center;font-weight:700;color:#fff;background:var(--accent);padding:10px 0}
+  .picker .num{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0;text-align:center;cursor:pointer}
+  .picker .num:nth-child(5n){border-right:0}
+  .picker .num.selected{background:var(--hit)}
+  .form{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:16px}
+  .field{display:grid;gap:6px}
+  .label{font-size:14px;color:var(--muted)}
+  .input{height:42px;border:1px solid var(--line);background:transparent;color:var(--text);border-radius:10px;padding:0 12px;outline:none;text-align:center}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;justify-content:center}
+  .row.center{justify-content:center}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;display:inline-flex;gap:8px;align-items:center;justify-content:center}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .badge{background:#ef4444;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}
+  .tabs{position:fixed;left:0;right:0;bottom:0;border-top:1px solid var(--line);background:color-mix(in oklab,var(--card) 90%,transparent);backdrop-filter:saturate(1.2) blur(8px);z-index:20}
+  .tabs ul{list-style:none;margin:0 auto;padding:0;display:grid;grid-template-columns:repeat(4,1fr);max-width:620px}
+  .tabs button{width:100%;padding:12px 0;background:none;border:0;color:#999;display:flex;align-items:center;justify-content:center;gap:8px}
+  .tabs .active{color:var(--text);position:relative}
+  .tabs .active::before{content:"";position:absolute;top:-2px;width:34px;height:4px;background:var(--accent);border-radius:999px}
+  .tab-label{display:none}
+  @media(min-width:480px){.tab-label{display:inline}}
+  .page{display:none;animation:fade .2s ease-out}
+  .page.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .grid-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:stretch;justify-items:stretch}
+  .grid-tiles .card{height:100%;margin-top:0;width:100%}
+  .grid-tiles .card .inner{display:flex;flex-direction:column;height:100%}
+  .ticket-actions{margin-top:auto;display:flex;gap:10px;justify-content:center}
+  .title-row{display:flex;align-items:center;justify-content:center;gap:12px}
+  .muted{color:#6b7280}
+  .status{border:1px solid var(--status-neutral-border);background:var(--status-neutral);border-radius:12px;padding:12px;text-align:center}
+  .status.win{border-color:var(--status-win-border);background:var(--status-win)}
+  .status .title{font-weight:800}
+  .counterbar{display:block;width:100%;padding:10px 12px;margin:0;background:var(--status-neutral);border:1px solid var(--status-neutral-border);border-radius:12px;text-align:center;font-weight:600}
+  .page>.card+.card{margin-top:12px}
+  .card.tiny{display:table;margin:12px auto}
+  .card.tiny .inner{padding:6px 12px}
+  .spaced>*+*{margin-top:12px}
+  .empty-center{grid-column:1/-1;display:flex;justify-content:center;margin:12px auto}
+  .date-line{min-height:20px}
+  .badge-row{height:32px;display:flex;align-items:center;justify-content:center;margin-top:6px}
+  .badge-row .badge{display:inline-block}
+  .photo-bar{display:grid;grid-template-columns:1fr;gap:8px;align-items:start;justify-items:center;text-align:center}
+  .photo-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .photo-zoom-controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .hint{font-size:13px;color:var(--muted);text-align:center;max-width:520px;margin:0 auto}
+  #photoStage{position:relative;max-width:100%;width:100%;aspect-ratio:4/3;background:#fafafa;border:1px dashed #bbb;border-radius:12px;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;margin-top:10px}
+  #photoImage{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;transform-origin:center center;cursor:grab}
+  #photoImage.dragging{cursor:grabbing}
+  .crop-overlay{position:absolute;inset:0;pointer-events:none}
+  .crop-rect{position:absolute;border:3px solid var(--handle);box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:auto;cursor:move;transform-origin:center center;touch-action:none;z-index:5}
+  .grid-line{position:absolute;background:rgba(255,255,255,.9)}
+  .handle{position:absolute;width:28px;height:28px;background:var(--handle);border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:grab;touch-action:none;z-index:6}
+  .handle.tl{left:0;top:0;transform:translate(-50%,-50%)}
+  .handle.tr{left:100%;top:0;transform:translate(50%,-50%)}
+  .handle.bl{left:0;top:100%;transform:translate(-50%,50%)}
+  .handle.br{left:100%;top:100%;transform:translate(50%,50%)}
+  .ocr-guides{position:absolute;inset:0;pointer-events:none}
+  .ocr-guide-cell{position:absolute;border:2px dashed color-mix(in oklab,var(--handle) 80%,#fff 0%);background:color-mix(in oklab,var(--handle) 10%,transparent);border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+  .d-none{display:none!important}
+  .no-scroll{overflow:hidden}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:saturate(1.2) blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999}
+  .overlay-box{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:20px 24px;width:min(520px,92vw);text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .overlay-title{margin:0 0 8px 0;font-weight:800}
+  .overlay-subtitle{margin:6px 0 0 0;color:var(--muted)}
+  .spinner{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;margin:0 auto 12px;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .progress{width:100%;margin:8px auto 0;padding:4px;border-radius:10px;border:1px solid var(--line);background:var(--status-neutral);position:relative;overflow:hidden}
+  .progress-bar{height:14px;border-radius:8px;width:0%;background:linear-gradient(90deg,var(--accent) 0%,color-mix(in oklab,var(--accent) 70%,#fff) 100%)}
+  .progress-label{margin-top:6px;font-size:12px;font-weight:600}
+  .modal-actions{display:flex;gap:8px;justify-content:center;margin-top:16px}
+  #appModalCancel{display:none}
+  .grid .head,.mini-head span,.picker .head{background:var(--bingo-green)!important;color:#fff!important}
+  .card .inner>h2,.card .inner>h3{text-decoration:none;display:block;margin:-16px -16px 8px -16px;padding:10px 16px;background:var(--title-blue);color:#fff;border-top-left-radius:var(--radius);border-top-right-radius:var(--radius)}
+  .card .inner>.title-row{margin:-16px -16px 8px -16px;padding:10px 16px;background:var(--title-blue);color:#fff;border-top-left-radius:var(--radius);border-top-right-radius:var(--radius)}
+  .card .inner>.title-row h2,.card .inner>.title-row h3{margin:0;text-decoration:none;color:#fff}
+  .card .inner h2+.subtitle,.card .inner h3+.subtitle,.card .inner .title-row+.subtitle{margin-top:6px}
+  #perspOverlay{position:absolute;inset:0;display:grid;grid-template-rows:1fr auto;background:transparent;pointer-events:auto}
+  .persp-quad{position:relative;pointer-events:auto}
+  .persp-handle{position:absolute;width:22px;height:22px;border:2px solid #fff;border-radius:50%;background:var(--handle);box-shadow:0 1px 4px rgba(0,0,0,.35);transform:translate(-50%,-50%);cursor:grab;pointer-events:auto;touch-action:none;z-index:7}
+  .persp-lines{position:absolute;inset:0;z-index:6;pointer-events:none}
+  .persp-toolbar{display:flex;gap:8px;justify-content:center;align-items:center;padding:8px;background:color-mix(in oklab,var(--card) 85%,transparent);border-top:1px solid var(--line);pointer-events:auto}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><div class="wrap"><h1>Bingoscheine Prüfen</h1></div></header>
+  <main class="wrap" id="pages">
+    <section class="page active" id="page-schein">
+      <div class="card"><div class="inner"><div id="ticket-count-bar-small" class="counterbar"></div></div></div>
+      <div class="card"><div class="inner">
+        <h2>Foto importieren</h2>
+        <div class="spacer"></div>
+        <div class="spacer"></div>
+        <div class="spacer"></div>
+        <div class="photo-bar">
+          <div class="stack-xs">
+            <input type="file" id="ocrFile" accept="image/*">
+            <div class="photo-actions">
+              <button class="btn d-none" id="perspBtn">📷 Fotoperspektive ändern</button>
+              <button class="btn d-none" id="perspCancelTop">❌ Abbrechen</button>
+              <button class="btn d-none" id="alignBtn">📐 Zahlenerkennung ausrichten</button>
+              <button class="btn d-none" id="alignCancelTop">❌ Abbrechen</button>
+              <button class="btn d-none" id="removePhotoBtn">🗑️ Foto Löschen</button>
+            </div>
+            <div class="photo-zoom-controls">
+              <button class="btn d-none" id="zoomInBtn">🔍 +</button>
+              <button class="btn d-none" id="zoomOutBtn">🔍 −</button>
+              <button class="btn d-none" id="zoomResetBtn">⟲ Reset</button>
+            </div>
+            <div class="hint d-none" id="photoHint">ℹ️ <strong>Tipp:</strong> Nutze zuerst „Fotoperspektive ändern“, um das Foto zu entzerren. Danach „Zahlenerkennung ausrichten“.</div>
+          </div>
+        </div>
+        <div id="photoStage" class="d-none">
+          <img id="photoImage" alt="Bingoschein">
+          <div id="perspOverlay" class="d-none">
+            <div id="perspQuad" class="persp-quad">
+              <div class="persp-handle" data-corner="tl" title="Oben links"></div>
+              <div class="persp-handle" data-corner="tr" title="Oben rechts"></div>
+              <div class="persp-handle" data-corner="br" title="Unten rechts"></div>
+              <div class="persp-handle" data-corner="bl" title="Unten links"></div>
+              <svg class="persp-lines" aria-hidden="true"></svg>
+            </div>
+            <div class="persp-toolbar"></div>
+          </div>
+          <div class="crop-overlay d-none" id="cropOverlay">
+            <div id="cropRect" class="crop-rect" style="left:10%; top:10%; width:80%; height:80%;">
+              <div class="grid-line" data-g="v1"></div><div class="grid-line" data-g="v2"></div><div class="grid-line" data-g="v3"></div><div class="grid-line" data-g="v4"></div>
+              <div class="grid-line" data-g="h1"></div><div class="grid-line" data-g="h2"></div><div class="grid-line" data-g="h3"></div><div class="grid-line" data-g="h4"></div>
+              <div id="ocrGuides" class="ocr-guides" aria-hidden="true"></div>
+              <div class="handle tl" data-h="tl"></div>
+              <div class="handle tr" data-h="tr"></div>
+              <div class="handle bl" data-h="bl"></div>
+              <div class="handle br" data-h="br"></div>
+            </div>
+          </div>
+        </div>
+        <div id="ocrStatus" class="subtitle" style="margin-top:8px"></div>
+      </div></div>
+      <div class="card" id="createCard"><div class="inner">
+        <div class="title-row"><h2>Schein erstellen</h2></div>
+        <div class="spacer"></div>
+        <div class="grid" style="margin-top:12px"><div class="head">B</div><div class="head">I</div><div class="head">N</div><div class="head">G</div><div class="head">O</div></div>
+        <div id="board" class="grid" style="border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:hidden"></div>
+        <div class="form">
+          <div class="field"><label class="label" for="name">Scheinname</label><input class="input" id="name" placeholder="z.B. Schein 1"></div>
+          <div class="field"><label class="label" for="datum">Datum</label><input class="input" id="datum" type="date"></div>
+          <div class="field"><label class="label" for="serien">Seriennummer</label><input class="input" id="serien"></div>
+          <div class="field"><label class="label" for="los">Losnummer</label><input class="input" id="los"></div>
+        </div>
+        <p class="subtitle" id="editInfo" style="display:none;color:#2563eb">Bearbeitungsmodus aktiv – „Schein speichern“ überschreibt den ausgewählten Schein.<button class="btn" id="cancelEdit" style="margin-left:8px">❌ Abbrechen</button></p>
+        <div class="row center">
+          <button class="btn primary" id="saveTicket">💾 Schein speichern</button>
+          <button class="btn" id="resetBoard">🗑️ Bereich zurücksetzen</button>
+          <button class="btn" id="fillRandom">🎲 Zufällig füllen</button>
+        </div>
+      </div></div>
+    </section>
+    <section class="page" id="page-saved">
+      <div class="card"><div class="inner"><div id="ticket-count-bar-big" class="counterbar"></div></div></div>
+      <div class="card"><div class="inner">
+        <div class="title-row"><h2>Gespeicherte Scheine</h2></div>
+        <div class="stack-xs">
+          <p class="subtitle">ℹ️Zahlen, die als „gezogen“ hinzugefügt wurden, erscheinen gelb hinterlegt. BINGO-Linien werden rot überzogen.</p>
+          <div class="row center"><button class="btn" id="clearTickets">🗑️ Alle Scheine löschen</button></div>
+          <div class="spacer"></div>
+          <div id="tickets" class="grid-tiles"></div>
+        </div>
+      </div></div>
+    </section>
+    <section class="page" id="page-draw">
+      <div class="card"><div class="inner"><div id="draw-count-bar" class="counterbar"></div></div></div>
+      <div class="card"><div class="inner">
+        <div class="title-row"><h2>Gezogene Zahlen eintragen</h2></div>
+        <p class="subtitle">ℹ️Tipp: Mehrere Zahlen mit Komma oder Leerzeichen trennen. Gültig sind Zahlen von 1–75. Doppelte Zahlen werden ignoriert.</p>
+        <div class="row center">
+          <input class="input" id="drawInput" placeholder="z.B. 1, 6, 7, 14" inputmode="numeric">
+          <button class="btn primary" id="addDrawn">➕ Hinzufügen</button>
+        </div>
+      </div></div>
+      <div class="card tiny"><div class="inner" style="text-align:center"><strong>Oder</strong></div></div>
+      <div class="card"><div class="inner">
+  <div class="title-row"><h3>Gezogene Zahlen auswählen</h3></div>
+
+  <div class="row center">
+    <button class="btn" id="clearDrawnOverview">🗑️ Alle Zahlen löschen</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="picker" id="pickerHeader">
+    <div class="head">B</div><div class="head">I</div><div class="head">N</div>
+    <div class="head">G</div><div class="head">O</div>
+  </div>
+  <div class="picker" id="pickerGrid" style="border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:hidden"></div>
+</div></div>
+
+    </section>
+    <section class="page" id="page-overview">
+      <div class="card"><div class="inner">
+        <div class="title-row"><h3>Gezogene Zahlen</h3></div>
+        <div class="stack-xs">
+          <div class="row center"><button class="btn" id="clearDrawnOverview">🗑️ Alle Zahlen löschen</button></div>
+          <div class="spacer"></div>
+          <div class="grid headless"><div class="head">B</div><div class="head">I</div><div class="head">N</div><div class="head">G</div><div class="head">O</div></div>
+          <div id="overviewTable" class="grid" style="border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:hidden"></div>
+        </div>
+      </div></div>
+      <div class="card" id="statusCard"><div class="inner spaced">
+        <h2>Bingo-Ergebnisse</h2>
+        <div id="overview-count-tickets" class="counterbar"></div>
+        <div id="overview-count-status" class="counterbar"></div>
+        <div id="statusBox" class="status"><div class="title" id="statusTitle">Noch kein Bingo</div><div class="sub" id="statusSub"></div></div>
+      </div></div>
+      <div class="card" id="winnersCard"><div class="inner">
+        <div class="title-row"><h3>Gewonnene Scheine</h3></div>
+        <p class="subtitle" id="winnersSubtitle">Kein Schein mit Gewinn vorhanden</p>
+        <div id="winnersList" class="grid-tiles"></div>
+      </div></div>
+    </section>
+  </main>
+  <nav class="tabs" aria-label="Hauptnavigation">
+    <ul>
+      <li><button data-target="page-schein" class="active">✏️ <span class="tab-label">Erstellung</span></button></li>
+      <li><button data-target="page-saved">📄 <span class="tab-label">Scheine</span></button></li>
+      <li><button data-target="page-draw">🎲 <span class="tab-label">Zahlen</span></button></li>
+      <li><button data-target="page-overview">📊 <span class="tab-label">Übersicht</span></button></li>
+    </ul>
+  </nav>
+</div>
+<div id="ocrOverlay" class="overlay d-none" role="dialog" aria-modal="true" aria-labelledby="ocrOverlayTitle" aria-describedby="ocrOverlayStatus">
+  <div class="overlay-box">
+    <div class="spinner" aria-hidden="true"></div>
+    <h3 id="ocrOverlayTitle" class="overlay-title">Erkennung läuft…</h3>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Fortschritt"><div id="ocrOLBar" class="progress-bar"></div></div>
+    <div id="ocrOLLabel" class="progress-label" aria-live="polite">0%</div>
+    <p id="ocrOverlayStatus" class="overlay-subtitle">Bitte warten…</p>
+  </div>
+</div>
+<div id="appModal" class="overlay d-none" role="dialog" aria-modal="true" aria-labelledby="appModalTitle" aria-describedby="appModalMsg">
+  <div class="overlay-box">
+    <h3 id="appModalTitle" class="overlay-title">Hinweis</h3>
+    <p id="appModalMsg" class="overlay-subtitle" style="margin-top:8px"></p>
+    <div class="modal-actions"><button class="btn" id="appModalCancel">❌ Abbrechen</button><button class="btn primary" id="appModalOk">OK</button></div>
+  </div>
+</div>
+<script>
+const K_TICKETS="bingo_tickets",K_DRAWN="bingo_drawn",K_LAST_TOTAL="bingo_last_total_lines";
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const COLS=[{key:"B",min:1,max:15},{key:"I",min:16,max:30},{key:"N",min:31,max:45},{key:"G",min:46,max:60},{key:"O",min:61,max:75}];
+const MAX_DRAWN_FOR_SUMMARY=22;
+const loadTickets=()=>JSON.parse(localStorage.getItem(K_TICKETS)||"[]");
+const saveTickets=a=>localStorage.setItem(K_TICKETS,JSON.stringify(a));
+const loadDrawn=()=>JSON.parse(localStorage.getItem(K_DRAWN)||"[]");
+const saveDrawn=a=>localStorage.setItem(K_DRAWN,JSON.stringify(a));
+const emptyBoard=()=>Array.from({length:5},()=>Array(5).fill(""));
+const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+function genRandomBoard(){const b=emptyBoard();COLS.forEach((c,ci)=>{const s=new Set();while(s.size<5)s.add(rand(c.min,c.max));[...s].forEach((n,ri)=>b[ri][ci]=String(n));});return b;}
+function getColIdx(n){if(n>=1&&n<=15)return 0;if(n<=30)return 1;if(n<=45)return 2;if(n<=60)return 3;if(n<=75)return 4;return -1;}
+function uniquePreserveOrder(arr){const out=[];for(const n of arr){if(Number.isInteger(n)&&n>=1&&n<=75&&!out.includes(n))out.push(n);}return out;}
+function formatDateDE(iso){if(!iso)return"";const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);return m?`${m[3]}.${m[2]}.${m[1]}`:iso;}
+function ticketCountText(n){if(n===0)return"Kein Schein gespeichert";if(n===1)return"1 Schein wurde gespeichert";return`${n} Scheine wurden gespeichert`;}
+function drawnCountText(n){const tot=MAX_DRAWN_FOR_SUMMARY;if(n===0)return"Keine Zahlen vorhanden";if(n===1)return`1 von ${tot} Zahlen wurde gezogen`;return`${n} von ${tot} Zahlen wurden gezogen`;}
+const tabs=$$(".tabs button"), pages=$$(".page");
+function goTo(id){tabs.forEach(b=>b.classList.toggle("active",b.dataset.target===id));pages.forEach(p=>p.classList.toggle("active",p.id===id));window.scrollTo({top:0,behavior:"smooth"});}
+tabs.forEach(btn=>btn.addEventListener("click",()=>{goTo(btn.dataset.target);if(btn.dataset.target==="page-saved")renderTickets();if(btn.dataset.target==="page-overview")renderOverview();}));
+function updateTicketCounts(){const n=loadTickets().length,text=ticketCountText(n);const s=$("#ticket-count-bar-small"),b=$("#ticket-count-bar-big");if(s)s.textContent=text;if(b)b.textContent=text;}
+let board=JSON.parse(localStorage.getItem("bingo-board")||"null")||emptyBoard();
+let editingTicketId=null, boardTouched=false;
+const boardEl=$("#board");
+const appModal=$("#appModal"),modalTitle=$("#appModalTitle"),modalMsg=$("#appModalMsg");
+const modalOk=$("#appModalOk"),modalCancel=$("#appModalCancel");
+let lastFocus=null;
+function openModal({title="Hinweis",message="",okText="OK",cancelText="❌ Abbrechen",showCancel=false}={}){
+  return new Promise(res=>{
+    lastFocus=document.activeElement; modalTitle.textContent=title; modalMsg.innerHTML=message.replace(/\n/g,"<br>");
+    modalOk.textContent=okText; modalCancel.textContent=cancelText; modalCancel.style.display=showCancel?"inline-flex":"none";
+    document.body.classList.add('no-scroll'); appModal.classList.remove('d-none');
+    const onKey=e=>{if(e.key==="Escape"&&showCancel)cleanup(false);if(e.key==="Enter")cleanup(true);};
+    function cleanup(v){document.removeEventListener("keydown",onKey);appModal.classList.add('d-none');document.body.classList.remove('no-scroll');try{lastFocus?.focus();}catch{}res(v);}
+    modalOk.onclick=()=>cleanup(true); modalCancel.onclick=()=>cleanup(false); document.addEventListener("keydown",onKey); modalOk.focus();
+  });
+}
+const modalAlert=(m,t="Hinweis",ok="OK")=>openModal({title:t,message:m,okText:ok,showCancel:false});
+const modalConfirm=(m,t="Bestätigen",ok="Ja",cancel="❌ Abbrechen")=>openModal({title:t,message:m,okText:ok,cancelText:cancel,showCancel:true});
+async function confirmAddedNumbers(added,prevList){
+  if(!added||!added.length)return;
+  const msg=added.length===1?`Zahl ${added[0]} wurde hinzugefügt.`:`Zahlen ${added.join(", ")} wurden hinzugefügt.`;
+  const ok=await openModal({title:"Bestätigung erforderlich!",message:msg,okText:"✅ OK",cancelText:"❌ Abbrechen",showCancel:true});
+  if(!ok){await setDrawn(prevList);}
+}
+function renderBoard(){
+  boardEl.innerHTML="";
+  for(let r=0;r<5;r++)for(let c=0;c<5;c++){
+    const wrap=document.createElement("div"); wrap.className="cell";
+    const inp=document.createElement("input"); inp.inputMode="numeric"; inp.placeholder=`${COLS[c].min}-${COLS[c].max}`; inp.value=board[r][c];
+    inp.addEventListener("input",e=>{e.target.value=e.target.value.replace(/[^0-9]/g,"");board[r][c]=e.target.value;localStorage.setItem("bingo-board",JSON.stringify(board));if(!boardTouched&&e.target.value.trim()!=="")boardTouched=true;validateBoard();});
+    wrap.appendChild(inp); boardEl.appendChild(wrap);
+  }
+  boardTouched=board.flat().some(v=>String(v).trim()!==""); validateBoard();
+}
+renderBoard();
+function validateBoard(){
+  const inputs=boardEl.querySelectorAll("input"); inputs.forEach(i=>i.classList.remove("invalid")); if(!boardTouched)return;
+  const values=[],countMap={};
+  inputs.forEach((inp,i)=>{const val=inp.value.trim(),col=i%5,n=Number(val),inRange=Number.isInteger(n)&&n>=COLS[col].min&&n<=COLS[col].max;values.push({val,n,inRange,inp});if(val!==""&&inRange)countMap[val]=(countMap[val]||0)+1;});
+  values.forEach(v=>{const isEmpty=v.val==="",isDup=v.val!==""&&v.inRange&&countMap[v.val]>1,invalid=isEmpty||!v.inRange||isDup;if(invalid)v.inp.classList.add("invalid");});
+}
+function isBoardCompletelyValid(){
+  const inputs=[...boardEl.querySelectorAll("input")]; if(inputs.length!==25)return false; const seen=new Set();
+  for(let i=0;i<inputs.length;i++){const val=inputs[i].value.trim(); if(val==="")return false; const n=Number(val),col=i%5; if(!Number.isInteger(n)||n<COLS[col].min||n>COLS[col].max)return false; if(seen.has(val))return false; seen.add(val);}
+  return true;
+}
+function resetCreateSection(){board=emptyBoard();localStorage.setItem("bingo-board",JSON.stringify(board));renderBoard();["name","serien","los","datum"].forEach(id=>{const el=$("#"+id);if(el)el.value="";});setEditMode(false);}
+$("#resetBoard").addEventListener("click",resetCreateSection);
+$("#fillRandom").addEventListener("click",()=>{board=genRandomBoard();localStorage.setItem("bingo-board",JSON.stringify(board));renderBoard();boardTouched=true;validateBoard();});
+function setEditMode(on,ticket=null){
+  editingTicketId=on&&ticket?ticket.id:null; const info=$("#editInfo");
+  if(on&&ticket){board=JSON.parse(JSON.stringify(ticket.board));localStorage.setItem("bingo-board",JSON.stringify(board));renderBoard();$("#name").value=ticket.meta.name||"";$("#datum").value=ticket.meta.datum||"";$("#serien").value=ticket.meta.seriennummer||"";$("#los").value=ticket.meta.losnummer||"";info.style.display="block";}
+  else info.style.display="none";
+}
+$("#cancelEdit").addEventListener("click",resetCreateSection);
+$("#saveTicket").addEventListener("click",async()=>{
+  if(!isBoardCompletelyValid()){boardTouched=true;validateBoard();await modalAlert("Bitte fülle alle 25 Felder korrekt aus:<br>• Keine Leerfelder<br>• Keine doppelten Zahlen<br>• Spaltenbereiche: B 1–15, I 16–30, N 31–45, G 46–60, O 61–75.");return;}
+  const meta={name:$("#name").value,datum:$("#datum").value,seriennummer:$("#serien").value,losnummer:$("#los").value};
+  if(editingTicketId){
+    const list=loadTickets();const idx=list.findIndex(t=>t.id===editingTicketId);
+    if(idx>-1){list[idx]={...list[idx],meta,board:JSON.parse(JSON.stringify(board))};saveTickets(list);await modalAlert("Schein wurde aktualisiert.");}
+    resetCreateSection();renderTickets();renderOverview();updateTicketCounts();goTo("page-saved");
+  }else{
+    const t={id:crypto.randomUUID(),meta,board:JSON.parse(JSON.stringify(board))};
+    const list=loadTickets();list.push(t);saveTickets(list);
+    await modalAlert("Schein wurde gespeichert.");resetCreateSection();updateTicketCounts();renderTickets();renderOverview();
+  }
+});
+function evaluateTicket(b,drawnSet){
+  const hit=(r,c)=>b[r][c]&&drawnSet.has(Number(b[r][c])); const lines=[];
+  for(let r=0;r<5;r++) if([0,1,2,3,4].every(c=>hit(r,c))) lines.push({type:"row",idx:r});
+  for(let c=0;c<5;c++) if([0,1,2,3,4].every(r=>hit(r,c))) lines.push({type:"col",idx:c});
+  if([0,1,2,3,4].every(i=>hit(i,i))) lines.push({type:"diag",idx:0});
+  if([0,1,2,3,4].every(i=>hit(i,4-i))) lines.push({type:"diag",idx:1});
+  return lines;
+}
+function drawBingoLinesSVG(container,lines){
+  if(!lines.length) return;
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.classList.add("win-lines");
+  const w=container.clientWidth,h=container.clientHeight,cw=w/5,ch=h/5; svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
+  const mk=(x1,y1,x2,y2)=>{const l=document.createElementNS("http://www.w3.org/2000/svg","line"); l.setAttribute("x1",x1); l.setAttribute("y1",y1); l.setAttribute("x2",x2); l.setAttribute("y2",y2); l.setAttribute("stroke","#ef4444"); l.setAttribute("stroke-width","6"); l.setAttribute("stroke-linecap","round"); svg.appendChild(l);};
+  lines.forEach(L=>{ if(L.type==="row"){const y=L.idx*ch+ch/2; mk(cw/2,y,w-cw/2,y);} if(L.type==="col"){const x=L.idx*cw+cw/2; mk(x,ch/2,x,h-ch/2);} if(L.type==="diag"&&L.idx===0) mk(cw/2,ch/2,w-cw/2,h-ch/2); if(L.type==="diag"&&L.idx===1) mk(w-cw/2,ch/2,cw/2,h-ch/2); });
+  container.appendChild(svg);
+}
+function renderTickets(){
+  const box=$("#tickets"),tickets=loadTickets(),drawn=new Set(loadDrawn()); box.innerHTML=""; updateTicketCounts();
+  if(!tickets.length){ box.innerHTML=`<div class="empty-center"><button class="btn primary" id="goCreateTicket">✏️ Jetzt Schein erstellen</button></div>`; return; }
+  tickets.forEach(t=>{
+    const lines=evaluateTicket(t.board,drawn).length;
+    const card=document.createElement("div"); card.className="card";
+    const inner=document.createElement("div"); inner.className="inner"; inner.style.textAlign="center";
+    const dateStr=t.meta.datum?formatDateDE(t.meta.datum):"";
+    inner.innerHTML=`
+      <div style="display:flex;justify-content:center"><strong>${t.meta.name||"Unbenannter Schein"}</strong></div>
+      <div class="subtitle date-line">${dateStr||"&#160;"}</div>
+      <div class="mini-head" style="margin-top:8px"><span>B</span><span>I</span><span>N</span><span>G</span><span>O</span></div>
+      <div class="board-mini" style="margin-top:6px"></div>
+      <div class="subtitle" style="margin-top:8px">Seriennr.: ${t.meta.seriennummer||"–"} · Losnr.: ${t.meta.losnummer||"–"}</div>
+      <div class="badge-row" data-badge-row><span class="badge" style="visibility:hidden"> </span></div>
+      <div class="ticket-actions"><button class="btn" data-edit="${t.id}">✏️ Bearbeiten</button><button class="btn" data-del="${t.id}">🗑️ Löschen</button></div>
+    `;
+    const mini=inner.querySelector(".board-mini");
+    t.board.forEach(row=>row.forEach(val=>{const d=document.createElement("div"); d.textContent=val||""; if(val&&drawn.has(Number(val))) d.classList.add("hit"); mini.appendChild(d);}));
+    const lineObjs=evaluateTicket(t.board,drawn); requestAnimationFrame(()=>drawBingoLinesSVG(mini,lineObjs));
+    const badge=inner.querySelector("[data-badge-row] .badge"); if(lines>0){badge.textContent=`${lines}× Bingo`;badge.style.visibility="visible";}
+    inner.querySelector(`[data-del="${t.id}"]`).addEventListener("click",async()=>{ if(await modalConfirm("Diesen Schein wirklich löschen?","Bestätigung erforderlich!","🗑️ Löschen","❌ Abbrechen")){ const rest=loadTickets().filter(x=>x.id!==t.id); saveTickets(rest); renderTickets(); renderOverview(); }});
+    inner.querySelector(`[data-edit="${t.id}"]`).addEventListener("click",()=>{goTo("page-schein");setEditMode(true,t);setTimeout(()=>{document.getElementById("createCard")?.scrollIntoView({behavior:"smooth",block:"start"});document.querySelector("#board input")?.focus();},60);});
+    card.appendChild(inner); box.appendChild(card);
+  });
+}
+$("#clearTickets").addEventListener("click",async()=>{ if(!loadTickets().length){await modalAlert("Keine Scheine vorhanden.");return;} if(await modalConfirm("⚠️ Wirklich ALLE bereits erstellten Scheine löschen? ⚠️","Bestätigung erforderlich!","🗑️ Löschen")){ saveTickets([]); renderTickets(); renderOverview(); updateTicketCounts(); }});
+const drawInput=$("#drawInput");
+function parseNumbers(text){return text?.split(/[^0-9]+/).map(s=>s.trim()).filter(Boolean).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=75)??[];}
+async function setDrawn(arr){
+  const prevCount=loadDrawn().length; let prevTotal=localStorage.getItem(K_LAST_TOTAL);
+  if(prevTotal===null){const ds=new Set(loadDrawn());let t=0;loadTickets().forEach(k=>t+=evaluateTicket(k.board,ds).length);prevTotal=t;}
+  prevTotal=Number(prevTotal)||0;
+  let list=uniquePreserveOrder(arr);
+  if(list.length>MAX_DRAWN_FOR_SUMMARY){list=list.slice(0,MAX_DRAWN_FOR_SUMMARY);await modalAlert(`Es können maximal ${MAX_DRAWN_FOR_SUMMARY} Zahlen gezogen werden.`);}
+  const newTotal=(()=>{const ds=new Set(list);let t=0;loadTickets().forEach(k=>t+=evaluateTicket(k.board,ds).length);return t;})();
+  saveDrawn(list);
+  if(list.length===MAX_DRAWN_FOR_SUMMARY&&prevCount!==MAX_DRAWN_FOR_SUMMARY){goTo("page-overview");document.getElementById("statusBox")?.scrollIntoView({behavior:"smooth",block:"start"});}
+  else if(newTotal>prevTotal&&document.querySelector(".page.active")?.id==="page-draw"){goTo("page-overview");}
+  renderDrawnSummaryBar();
+}
+function renderDrawnSummaryBar(){const n=loadDrawn().length;const bar=$("#draw-count-bar");if(bar)bar.textContent=drawnCountText(n);renderTickets();renderOverview();renderPicker();}
+$("#addDrawn")?.addEventListener("click",async()=>{
+  const prev=loadDrawn();
+  const inNums=parseNumbers(drawInput.value);
+  if(!inNums.length){await modalAlert("Bitte gültige Zahlen (1–75) eingeben.");return;}
+  const newOnes=inNums.filter(n=>!prev.includes(n));
+  if(!newOnes.length){await modalAlert("Es wurden keine neuen Zahlen hinzugefügt.");drawInput.value="";return;}
+  await setDrawn([...prev,...newOnes]);
+  await confirmAddedNumbers(newOnes,prev);
+  drawInput.value="";
+});
+function renderPicker(){
+  const grid=$("#pickerGrid"); if(!grid) return; grid.innerHTML="";
+  const selected=new Set(loadDrawn());
+
+  for(let row=0;row<15;row++)for(let col=0;col<5;col++){
+    const num=(col*15)+(row+1);
+    const cell=document.createElement("div");
+    const isSel=selected.has(num);
+
+    cell.className="num"+(isSel?" selected":"");
+    cell.textContent=num;
+    cell.setAttribute("role","button");
+    cell.setAttribute("aria-pressed",isSel?"true":"false");
+
+    cell.addEventListener("click",async()=>{
+      const s=new Set(loadDrawn());
+
+      // ← Neu: statt Hinweis jetzt Bestätigung + Löschen (wie in "Übersicht")
+      if(s.has(num)){
+        const ok = await modalConfirm(`Zahl ${num} wirklich löschen?`,"Bestätigung erforderlich!","🗑️ Löschen","❌ Abbrechen");
+        if(ok){
+          const prev=[...s];
+          s.delete(num);
+          await setDrawn([...s]); // aktualisiert Übersicht, Picker, Tickets usw.
+          // optional: kurze Bestätigung spare ich mir – Verhalten ist konsistent zur Übersicht
+        }
+        return;
+      }
+
+      // Unverändert: Zahl hinzufügen
+      if(s.size>=MAX_DRAWN_FOR_SUMMARY){
+        await modalAlert(`Es können maximal ${MAX_DRAWN_FOR_SUMMARY} Zahlen gezogen werden.`);
+        return;
+      }
+      const prev=[...s];
+      s.add(num);
+      await setDrawn([...s]);
+      await confirmAddedNumbers([num],prev);
+    });
+
+    grid.appendChild(cell);
+  }
+}
+
+function renderResultsIntoOverview(){
+  const drawn=loadDrawn(),ticketsCount=loadTickets().length;
+  const ticketCounter=$("#overview-count-tickets"); if(ticketCounter) ticketCounter.textContent=ticketCountText(ticketsCount);
+  const statusCounter=$("#overview-count-status"); if(statusCounter) statusCounter.textContent=drawnCountText(drawn.length);
+  const statusBox=$("#statusBox"); if(!statusBox) return; statusBox.style.display=drawn.length===0?"none":"";
+  const dset=new Set(drawn); let singles=0,doubles=0,triples=0,totalLines=0;
+  loadTickets().forEach(t=>{const cnt=evaluateTicket(t.board,dset).length;totalLines+=cnt;if(cnt>=3)triples++;else if(cnt===2)doubles++;else if(cnt===1)singles++;});
+  const title=$("#statusTitle"),sub=$("#statusSub");
+  if(drawn.length===0){title.textContent="";sub.textContent="";statusBox.classList.remove("win","flash");}
+  else if(totalLines>0){title.textContent="🎉 Du hast gewonnen!";const parts=[];if(singles>0)parts.push(`${singles}× Bingo`);if(doubles>0)parts.push(`${doubles}× Doppelbingo`);if(triples>0)parts.push(`${triples}× Dreifachbingo`);sub.textContent=parts.join(" – ")||`${totalLines}× Bingo`;statusBox.classList.add("win");}
+  else if(drawn.length===MAX_DRAWN_FOR_SUMMARY){title.textContent="Leider kein Glück gehabt, vielleicht klappts beim nächsten mal!";sub.textContent="";statusBox.classList.remove("win");}
+  else{title.textContent="Noch kein Bingo";sub.textContent="";statusBox.classList.remove("win");}
+  const prevRaw=localStorage.getItem(K_LAST_TOTAL),prev=prevRaw===null?null:Number(prevRaw);
+  if(prev===null){localStorage.setItem(K_LAST_TOTAL,String(totalLines));}
+  else{if(totalLines>prev){statusBox.classList.add("flash");statusBox.scrollIntoView({behavior:"smooth",block:"start"});setTimeout(()=>statusBox.classList.remove("flash"),1400);}localStorage.setItem(K_LAST_TOTAL,String(totalLines));}
+}
+function renderOverviewWinners(){
+  const listEl=$("#winnersList"),subEl=$("#winnersSubtitle"); if(!listEl) return; listEl.innerHTML="";
+  const drawnSet=new Set(loadDrawn());
+  let winners=loadTickets().map(t=>{const lines=evaluateTicket(t.board,drawnSet);return{ticket:t,lines,count:lines.length};}).filter(x=>x.count>0).sort((a,b)=>b.count-a.count);
+  if(!winners.length){subEl.textContent="Kein Schein mit Gewinn vorhanden";return;}
+  subEl.textContent=`${winners.length} Schein(e) mit Treffern:`;
+  winners.forEach(({ticket,lines,count})=>{
+    const card=document.createElement("div"); card.className="card";
+    const inner=document.createElement("div"); inner.className="inner"; inner.style.textAlign="center";
+    inner.innerHTML=`<div style="display:flex;justify-content:center"><strong>${ticket.meta.name||"Unbenannter Schein"}</strong></div>
+      <div class="subtitle date-line">${ticket.meta.datum?formatDateDE(ticket.meta.datum):"&#160;"}</div>
+      <div class="mini-head" style="margin-top:8px"><span>B</span><span>I</span><span>N</span><span>G</span><span>O</span></div>
+      <div class="board-mini" style="margin-top:6px"></div>
+      <div class="subtitle" style="margin-top:8px">Seriennr.: ${ticket.meta.seriennummer||"–"} · Losnr.: ${ticket.meta.losnummer||"–"}</div>
+      <div class="badge-row"><span class="badge">${count}× Bingo</span></div>`;
+    const mini=inner.querySelector(".board-mini");
+    ticket.board.forEach(row=>row.forEach(val=>{const d=document.createElement("div"); d.textContent=val||""; if(val&&drawnSet.has(Number(val))) d.classList.add("hit"); mini.appendChild(d);}));
+    requestAnimationFrame(()=>drawBingoLinesSVG(mini,lines));
+    card.appendChild(inner); listEl.appendChild(card);
+  });
+}
+function renderOverview(){
+  renderResultsIntoOverview();
+  const table=$("#overviewTable"); if(!table) return;
+  const arr=loadDrawn().slice().sort((a,b)=>a-b); const cols=[[],[],[],[],[]]; arr.forEach(n=>{const idx=getColIdx(n); if(idx>=0) cols[idx].push(n);});
+  table.innerHTML="";
+  if(arr.length===0){table.innerHTML=`<div class="empty-center"><button class="btn primary" id="goToNumbersBtn">Keine Zahlen vorhanden! Hier Zahlen hinzufügen</button></div>`;}
+  else{
+    const maxRows=Math.max(...cols.map(c=>c.length),1);
+    for(let r=0;r<maxRows;r++)for(let c=0;c<5;c++){
+      const value=cols[c][r]; const d=document.createElement("div"); d.className="cell"+(value?" clickable":""); d.style.padding="10px"; d.style.textAlign="center"; d.textContent=value??"";
+      if(value){d.title="Klicken, um diese Zahl zu löschen"; d.addEventListener("click",async()=>{ if(await modalConfirm(`Zahl ${value} wirklich löschen?`)){ const list=loadDrawn().filter(n=>n!==value); saveDrawn(list); renderDrawnSummaryBar(); } });}
+      table.appendChild(d);
+    }
+  }
+  renderOverviewWinners();
+}
+document.addEventListener("click",async(e)=>{ if(e.target&&e.target.id==="clearDrawnOverview"){ if(await modalConfirm("⚠️ Alle gezogenen Zahlen wirklich löschen? ⚠️","Bestätigung erforderlich!","🗑️ Löschen")){ saveDrawn([]); renderDrawnSummaryBar(); } }
+  if(e.target&&e.target.id==="goToNumbersBtn"){goTo("page-draw");}
+  if(e.target&&e.target.id==="goCreateTicket"){goTo("page-schein");}
+});
+const ocrInput=$("#ocrFile"),photoStage=$("#photoStage"),photoImg=$("#photoImage"),cropOverlay=$("#cropOverlay");
+const alignBtn=$("#alignBtn"),removePhotoBtn=$("#removePhotoBtn"),cropRect=$("#cropRect");
+const zoomInBtn=$("#zoomInBtn"),zoomOutBtn=$("#zoomOutBtn"),zoomResetBtn=$("#zoomResetBtn");
+const ocrGuides=$("#ocrGuides"),photoHint=$("#photoHint");
+const perspBtn=$("#perspBtn"),perspCancelTop=$("#perspCancelTop"),alignCancelTop=$("#alignCancelTop"),perspOverlay=$("#perspOverlay"),perspQuad=$("#perspQuad"),perspLines=photoStage.querySelector(".persp-lines");
+let currentURL=null,hasImage=false,alignMode=false;
+let zoom=1,panX=0,panY=0; const MIN_ZOOM=1,MAX_ZOOM=4,ZOOM_STEP=0.2;
+function applyPhotoTransform(){photoImg.style.transform=`translate(${panX}px, ${panY}px) scale(${zoom})`;}
+function setZoom(newZ){zoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,newZ));applyPhotoTransform();}
+function resetView(){zoom=1;panX=0;panY=0;applyPhotoTransform();}
+function show(el){el?.classList.remove('d-none')} function hide(el){el?.classList.add('d-none')}
+let perspMode=false, perspCorners=null, perspDragging=null;
+function updateButtons(){
+  if(!hasImage){
+    [perspBtn,perspCancelTop,alignBtn,alignCancelTop,removePhotoBtn,photoStage,zoomInBtn,zoomOutBtn,zoomResetBtn,photoHint,perspOverlay].forEach(hide);
+    alignMode=false; perspMode=false;
+    alignBtn.textContent='📐 Zahlenerkennung ausrichten';
+    perspBtn.textContent='📷 Fotoperspektive ändern';
+    cropOverlay.classList.add('d-none');
+    return;
+  }
+  [photoStage,removePhotoBtn,zoomInBtn,zoomOutBtn,zoomResetBtn,photoHint].forEach(show);
+  perspBtn.textContent=perspMode?'✅ Perspektive anwenden':'📷 Fotoperspektive ändern';
+  alignBtn.textContent=alignMode?'✅ Fertig ausgerichtet':'📐 Zahlenerkennung ausrichten';
+  cropOverlay.classList.toggle('d-none',!alignMode);
+  perspOverlay.classList.toggle('d-none',!perspMode);
+  if(perspMode){
+    show(perspCancelTop); hide(alignCancelTop); hide(alignBtn); show(perspBtn);
+  }else if(alignMode){
+    show(alignCancelTop); hide(perspCancelTop); show(alignBtn); hide(perspBtn);
+  }else{
+    hide(perspCancelTop); hide(alignCancelTop); show(perspBtn); show(alignBtn);
+  }
+}
+function resetPhoto(){
+  if(currentURL){URL.revokeObjectURL(currentURL);currentURL=null;}
+  photoImg.src=''; hasImage=false;
+  cropRect.style.left='10%'; cropRect.style.top='10%'; cropRect.style.width='80%'; cropRect.style.height='80%';
+  $("#ocrStatus").textContent=''; hideOcrOverlay(); resetView(); hide(photoHint);
+  alignMode=false; perspMode=false; updateButtons();
+}
+ocrInput?.addEventListener('change',(e)=>{const f=e.target.files?.[0]; if(!f){resetPhoto();return;} if(currentURL)URL.revokeObjectURL(currentURL); currentURL=URL.createObjectURL(f);
+  photoImg.onload=()=>{hasImage=true;resetView();alignMode=false;perspMode=false;updateButtons();}; photoImg.src=currentURL;});
+removePhotoBtn?.addEventListener('click',()=>{resetPhoto();ocrInput.value="";});
+const CROP_BORDER=3,GRID=2,INSET=2,FUDGE_R=8,FUDGE_B=8; const CELL_PAD=0.02,MIN_PAD_PX=1;
+function stageRect(){return photoStage.getBoundingClientRect();}
+function stylesToPx(){
+  const st=stageRect();
+  const L=Math.round(st.width*(parseFloat(cropRect.style.left)/100));
+  const T=Math.round(st.height*(parseFloat(cropRect.style.top)/100));
+  const W=Math.max(1,Math.round(st.width*(parseFloat(cropRect.style.width)/100)));
+  const H=Math.max(1,Math.round(st.height*(parseFloat(cropRect.style.height)/100)));
+  return {L,T,W,H,st};
+}
+function writePx(L,T,W,H,st){cropRect.style.left=(L/st.width)*100+'%';cropRect.style.top=(T/st.height)*100+'%';cropRect.style.width=(W/st.width)*100+'%';cropRect.style.height=(H/st.height)*100+'%';}
+function updateGrid(){
+  const {W,H}=stylesToPx();
+  const x0=CROP_BORDER+INSET,y0=CROP_BORDER+INSET;
+  const innerW=Math.max(1,W-(CROP_BORDER+INSET)-(CROP_BORDER+INSET+FUDGE_R));
+  const innerH=Math.max(1,H-(CROP_BORDER+INSET)-(CROP_BORDER+INSET+FUDGE_B));
+  for(let i=1;i<=4;i++){
+    const vx=x0+Math.floor(innerW*(i/5)), v=cropRect.querySelector(`[data-g="v${i}"]`);
+    v.style.cssText=`left:${vx-(GRID>>1)}px; top:${y0}px; width:${GRID}px; height:${innerH}px`;
+    const hy=y0+Math.floor(innerH*(i/5)), h=cropRect.querySelector(`[data-g="h${i}"]`);
+    h.style.cssText=`left:${x0}px; top:${hy-(GRID>>1)}px; width:${innerW}px; height:${GRID}px`;
+  }
+  if(ocrGuides && ocrGuides.children.length!==25){ocrGuides.innerHTML="";for(let i=0;i<25;i++){const d=document.createElement('div');d.className='ocr-guide-cell';ocrGuides.appendChild(d);}}
+  const cw=innerW/5, ch=innerH/5, padX=Math.max(Math.floor(cw*CELL_PAD),MIN_PAD_PX), padY=Math.max(Math.floor(ch*CELL_PAD),MIN_PAD_PX);
+  if(ocrGuides){let idx=0;for(let r=0;r<5;r++)for(let c=0;c<5;c++,idx++){const left=Math.round(x0+c*cw+padX),top=Math.round(y0+r*ch+padY),w=Math.max(1,Math.round(cw-2*padX)),h=Math.max(1,Math.round(ch-2*padY));const cell=ocrGuides.children[idx];cell.style.left=left+'px';cell.style.top=top+'px';cell.style.width=w+'px';cell.style.height=h+'px';}}
+}
+function getCropRectPixels(){
+  const {L,T,W,H}=stylesToPx();
+  const x=L+CROP_BORDER+INSET,y=T+CROP_BORDER+INSET;
+  const w=Math.max(1,W-(CROP_BORDER+INSET)-(CROP_BORDER+INSET+FUDGE_R));
+  const h=Math.max(1,H-(CROP_BORDER+INSET)-(CROP_BORDER+INSET+FUDGE_B));
+  return {x,y,w,h};
+}
+let dragMode=null;
+cropRect.addEventListener('pointerdown',e=>{if(!alignMode)return;const h=e.target.closest('.handle');dragMode=h?('handle:'+h.dataset.h):'move';e.preventDefault();e.target.setPointerCapture?.(e.pointerId);});
+cropRect.addEventListener('pointermove',e=>{
+  if(!alignMode||!dragMode)return;
+  const {L,T,W,H,st}=stylesToPx(); const x=Math.max(0,Math.min(e.clientX-st.left,st.width)); const y=Math.max(0,Math.min(e.clientY-st.top,st.height));
+  if(dragMode==='move'){const newL=Math.max(0,Math.min(Math.round(x-W/2),st.width-W));const newT=Math.max(0,Math.min(Math.round(y-H/2),st.height-H));writePx(newL,newT,W,H,st);updateGrid();return;}
+  const min=40; let NL=L,NT=T,NW=W,NH=H; const w=dragMode.split(':')[1];
+  if(w==='tl'){const nl=Math.max(0,Math.min(x,L+W-min));const nt=Math.max(0,Math.min(y,T+H-min));NW=(L+W)-nl;NH=(T+H)-nt;NL=Math.round(nl);NT=Math.round(nt);}
+  if(w==='tr'){const nr=Math.max(L+min,Math.min(x,st.width));NW=Math.round(nr-L);const nt=Math.max(0,Math.min(y,T+H-min));NH=(T+H)-nt;NT=Math.round(nt);}
+  if(w==='bl'){const nb=Math.max(T+min,Math.min(y,st.height));NH=Math.round(nb-T);const nl=Math.max(0,Math.min(x,L+W-min));NW=(L+W)-nl;NL=Math.round(nl);}
+  if(w==='br'){const nr=Math.max(L+min,Math.min(x,st.width));const nb=Math.max(T+min,Math.min(y,st.height));NW=Math.round(nr-L);NH=Math.round(nb-T);}
+  NW=Math.max(1,NW);NH=Math.max(1,NH);writePx(NL,NT,NW,NH,st);updateGrid();
+});
+['pointerup','pointercancel'].forEach(ev=>cropRect.addEventListener(ev,()=>{dragMode=null;}));
+function getBaseContainRect(stageEl,imgEl){
+  const st=stageRect(); const imgAspect=imgEl.naturalWidth/imgEl.naturalHeight; const stageAspect=st.width/st.height;
+  let visW,visH,offX,offY;
+  if(imgAspect>stageAspect){visW=st.width;visH=Math.round(st.width/imgAspect);offX=0;offY=Math.round((st.height-visH)/2);}
+  else{visH=st.height;visW=Math.round(st.height*imgAspect);offY=0;offX=Math.round((st.width-visW)/2);}
+  return {left:offX,top:offY,width:visW,height:visH};
+}
+function preprocessToCanvas(imgEl,rectPx){
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent); const outW=isIOS?1300:1500; const outH=Math.max(1,Math.round(rectPx.h*(outW/rectPx.w)));
+  const canvas=document.createElement('canvas'); canvas.width=outW; canvas.height=outH;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const base=getBaseContainRect(photoStage,imgEl); const effW=base.width*zoom,effH=base.height*zoom;
+  const effLeft=base.left+panX+(base.width-effW)/2,effTop=base.top+panY+(base.height-effH)/2;
+  const cx=rectPx.x+rectPx.w/2,cy=rectPx.y+rectPx.h/2;
+  ctx.translate(outW/2,outH/2); ctx.scale(outW/rectPx.w,outW/rectPx.w); ctx.translate(-cx,-cy);
+  ctx.imageSmoothingEnabled=true; ctx.drawImage(imgEl,effLeft,effTop,effW,effH);
+  const id=ctx.getImageData(0,0,outW,outH),d=id.data; let sum=0;
+  for(let i=0;i<d.length;i+=4){sum+=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];}
+  const avg=sum/(d.length/4),gain=1.25;
+  for(let i=0;i<d.length;i+=4){const g=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];const v=(g-avg)*gain+avg; d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;}
+  ctx.putImageData(id,0,0); return canvas;
+}
+let __ocrWorker=null;
+async function getOCRWorker(){ if(__ocrWorker) return __ocrWorker; const w=await Tesseract.createWorker('deu+eng'); await w.setParameters({tessedit_char_whitelist:'0123456789',tessedit_do_invert:'1',preserve_interword_spaces:'1'}); __ocrWorker=w; return w;}
+(async function prewarmOCR(){try{await getOCRWorker();}catch{}})();
+const ocrOverlay=$("#ocrOverlay"), ocrOLBar=$("#ocrOLBar"), ocrOLLbl=$("#ocrOLLabel"), ocrOLText=$("#ocrOverlayStatus");
+function showOcrOverlay(msg){document.body.classList.add('no-scroll');ocrOverlay.classList.remove('d-none');updateOcrProgress(0,25,msg||'Bitte warten…');}
+function updateOcrProgress(done,total,msg){const pct=Math.max(0,Math.min(100,Math.round((done/total)*100))); ocrOLBar.style.width=pct+"%"; ocrOverlay?.querySelector('.progress')?.setAttribute('aria-valuenow',String(pct)); ocrOLLbl.textContent=pct+"%"; if(msg) ocrOLText.textContent=msg;}
+function hideOcrOverlay(){ocrOverlay.classList.add('d-none');document.body.classList.remove('no-scroll');}
+function makeRGBA(w,h,fill=255){const a=new Uint8ClampedArray(w*h*4);for(let i=0;i<a.length;i+=4){a[i]=a[i+1]=a[i+2]=fill;a[i+3]=255;}return a;}
+function paintRGBA(ctx,x,y,w,h,rgba){if(w<=0||h<=0)return;const id=ctx.createImageData(w,h);if(rgba.length!==w*h*4)return;id.data.set(rgba);ctx.putImageData(id,x,y);}
+async function ocrBingoGridFromCanvas(gridCanvas){
+  const W=Math.max(5,gridCanvas.width),H=Math.max(5,gridCanvas.height),cw=Math.floor(W/5),ch=Math.floor(H/5);
+  const baseCtx=gridCanvas.getContext('2d',{willReadFrequently:true});
+  function toGray(sx,sy,sw,sh){sx|=0;sy|=0;sw=Math.max(1,sw|0);sh=Math.max(1,sh|0);const id=baseCtx.getImageData(sx,sy,sw,sh);const d=id.data,g=new Uint8ClampedArray(sw*sh);for(let i=0,j=0;i<d.length;i+=4,j++){g[j]=(0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2])|0;d[i]=d[i+1]=d[i+2]=g[j];d[i+3]=255;}return{id,gray:g,w:sw,h:sh}}
+  function otsu(gray,w,h){const hist=new Uint32Array(256);for(let i=0;i<gray.length;i++)hist[gray[i]]++;const total=w*h;let sum=0;for(let t=0;t<256;t++)sum+=t*hist[t];let sumB=0,wB=0,varMax=-1,thr=127;for(let t=0;t<256;t++){wB+=hist[t];if(!wB)continue;const wF=total-wB;if(!wF)break;sumB+=t*hist[t];const mB=sumB/wB,mF=(sum-sumB)/wF,between=wB*wF*(mB-mF)*(mB-mF);if(between>varMax){varMax=between;thr=t;}}return thr|0;}
+  function sauvola(gray,w,h,k=0.34,R=128,win=25){const out=new Uint8ClampedArray(w*h*4),half=Math.max(1,(win|0)>>1);for(let y=0;y<h;y++){for(let x=0;x<w;x++){let sum=0,sum2=0,cnt=0;for(let j=-half;j<=half;j++){const yy=y+j;if(yy<0||yy>=h)continue;for(let i=-half;i<=half;i++){const xx=x+i;if(xx<0||xx>=w)continue;const v=gray[yy*w+xx];sum+=v;sum2+=v*v;cnt++;}}const m=sum/cnt,s=Math.sqrt(Math.max(0,sum2/cnt-m*m));const thr=m*(1+k*((s/R)-1));const pix=gray[y*w+x]>thr?255:0;const idx=(y*w+x)*4;out[idx]=out[idx+1]=out[idx+2]=pix;out[idx+3]=255;}}return out;}
+  function morphCloseOpen(rgba,w,h){const b=new Uint8ClampedArray(rgba),idx=(x,y)=>((y*w+x)<<2);const dila=new Uint8ClampedArray(b);
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let any=false;for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){if(b[idx(x+i,y+j)]===255){any=true;}}const k=idx(x,y),v=any?255:0;dila[k]=dila[k+1]=dila[k+2]=v;dila[k+3]=255;}
+    const eros=new Uint8ClampedArray(dila);
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let all=true;for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){if(dila[idx(x+i,y+j)]!==255){all=false;}}const k=idx(x,y),v=all?255:0;eros[k]=eros[k+1]=eros[k+2]=v;eros[k+3]=255;}
+    const out=new Uint8ClampedArray(eros);
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let any=false;for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){if(eros[idx(x+i,y+j)]===255){any=true;}}const k=idx(x,y),v=any?255:0;out[k]=out[k+1]=out[k+2]=v;out[k+3]=255;} return out;}
+  function upscale(ctx,sw,sh,scale=2.0){const tw=Math.max(1,Math.round(sw*scale)),th=Math.max(1,Math.round(sh*scale));const tmp=document.createElement('canvas');tmp.width=tw;tmp.height=th;const tctx=tmp.getContext('2d',{willReadFrequently:true});tctx.imageSmoothingEnabled=true;tctx.drawImage(ctx.canvas,0,0,sw,sh,0,0,tw,th);return{canvas:tmp,ctx:tctx,w:tw,h:th};}
+  const results=[];
+  for(let r=0;r<5;r++)for(let c=0;c<5;c++){
+    const padX=Math.max(Math.floor(cw*0.02),1),padY=Math.max(Math.floor(ch*0.02),1);
+    const sx=(c*cw+padX)|0,sy=(r*ch+padY)|0,sw=Math.max(1,cw-2*padX)|0,sh=Math.max(1,ch-2*padY)|0;
+    const {gray,w:gw,h:gh}=toGray(sx,sy,sw,sh); const avg=gray.reduce((a,v)=>a+v,0)/gray.length; const thrGlobal=Math.max(64,Math.min(200,avg*0.92))|0;
+    const base=document.createElement('canvas');base.width=gw;base.height=gh;const bctx=base.getContext('2d',{willReadFrequently:true});
+    const variants=[];
+    (function(){const out=makeRGBA(gw,gh,255);for(let i=0,j=0;i<gray.length;i++,j+=4){out[j]=out[j+1]=out[j+2]=gray[i]>thrGlobal?255:0;}variants.push({rgba:out,w:gw,h:gh});})();
+    (function(){const thr=otsu(gray,gw,gh),out=makeRGBA(gw,gh,255);for(let i=0,j=0;i<gray.length;i++,j+=4){out[j]=out[j+1]=out[j+2]=gray[i]>thr?255:0;}variants.push({rgba:out,w:gw,h:gh});})();
+    const sau=sauvola(gray,gw,gh,0.34,128,25);variants.push({rgba:sau,w:gw,h:gh});variants.push({rgba:morphCloseOpen(sau,gw,gh),w:gw,h:gh});
+    let best={num:null,conf:-1,raw:''};
+    for(const v of variants){
+      bctx.clearRect(0,0,gw,gh); paintRGBA(bctx,0,0,v.w,v.h,v.rgba);
+      const enlarged=upscale(bctx,gw,gh,2.0); const wInst=await getOCRWorker();
+      await wInst.setParameters({tessedit_pageseg_mode:Tesseract.PSM.SINGLE_WORD});
+      const {data}=await wInst.recognize(enlarged.canvas);
+      let conf=0,text=data?.text||''; if(Array.isArray(data?.words)&&data.words.length){conf=data.words.reduce((a,w)=>a+(w.confidence||0),0)/data.words.length;} else if(typeof data?.confidence==='number'){conf=data.confidence;}
+      const raw=(text||'').replace(/\D+/g,''); const m=raw.match(/\d{1,2}/); let nTmp=m?parseInt(m[0],10):null; if(nTmp!=null&&(nTmp<1||nTmp>75))nTmp=null;
+      const cand={num:nTmp,conf:conf||0,raw}; if(cand.num!=null && cand.conf>best.conf) best=cand;
+    }
+    const colRange=COLS[c], inCol=n=>Number.isInteger(n)&&n>=colRange.min&&n<=colRange.max, needFallback=best.num==null||best.conf<65||!inCol(best.num);
+    let leftDigit="",rightDigit="";
+    if(needFallback){
+      const v=variants[3]; bctx.clearRect(0,0,gw,gh); paintRGBA(bctx,0,0,v.w,v.h,v.rgba);
+      const enlarged=upscale(bctx,gw,gh,2.0); const tw=enlarged.w,th=enlarged.h; const halves=[{x:0,y:0,w:Math.floor(tw/2),h:th},{x:Math.floor(tw/2),y:0,w:tw-Math.floor(tw/2),h:th}];
+      const wInst=await getOCRWorker();
+      for(let hi=0;hi<2;hi++){
+        const hpart=halves[hi]; const c2=document.createElement('canvas');c2.width=hpart.w;c2.height=hpart.h;const ctx2=c2.getContext('2d',{willReadFrequently:true});
+        ctx2.drawImage(enlarged.canvas,hpart.x,hpart.y,hpart.w,hpart.h,0,0,hpart.w,hpart.h);
+        await wInst.setParameters({tessedit_pageseg_mode:Tesseract.PSM.SINGLE_CHAR,tessedit_char_whitelist:'0123456789'});
+        const {data}=await wInst.recognize(c2); const raw=(data?.text||'').replace(/\D+/g,''); if(raw){if(hi===0)leftDigit=raw[0];else rightDigit=raw[0];}
+      }
+      if(leftDigit&&rightDigit){const num=parseInt(leftDigit+rightDigit,10); if(inCol(num)) best={num,conf:82,raw:leftDigit+rightDigit};}
+      if((!best.num||!inCol(best.num))&&leftDigit&&!rightDigit){const candidates=[];for(let d=0;d<=9;d++){const n=parseInt(leftDigit+String(d),10);if(inCol(n))candidates.push(n);} if(candidates.length===1)best={num:candidates[0],conf:68,raw:leftDigit};}
+      if((!best.num||!inCol(best.num))&&!leftDigit&&rightDigit){const candidates=[];for(let d=0;d<=9;d++){const n=parseInt(String(d)+rightDigit,10);if(inCol(n))candidates.push(n);} if(candidates.length===1)best={num:candidates[0],conf:68,raw:rightDigit};}
+    }
+    if((!best.num||!inCol(best.num))&&best.raw&&/^\d{2}$/.test(best.raw)){const n=parseInt(best.raw,10); if(inCol(n)) best={num:n,conf:60,raw:best.raw};}
+    results.push({row:r,col:c,...best});
+    const step=r*5+c+1; const st=$("#ocrStatus"); if(st) st.textContent=`Erkenne Zellen… ${step}/25`; updateOcrProgress(step,25,`Erkenne Zellen… ${step}/25`); await new Promise(rq=>setTimeout(rq,0));
+  }
+  const CONF_MAP={'0':['6','8'],'1':['7','4'],'2':['7'],'3':['8','5'],'4':['1','9'],'5':['6','3'],'6':['5','8','0'],'7':['1','2'],'8':['6','3','9','0'],'9':['8','4']};
+  const fixed=new Array(25).fill(null);
+  results.forEach(cell=>{
+    const idx=cell.row*5+cell.col,range=COLS[cell.col],inCol=n=>Number.isInteger(n)&&n>=range.min&&n<=range.max;
+    if(inCol(cell.num)){fixed[idx]=cell.num;return;}
+    const raw=cell.raw||''; const pool=new Set([raw]);
+    for(let i=0;i<raw.length;i++){for(const alt of (CONF_MAP[raw[i]]||[])){pool.add(raw.slice(0,i)+alt+raw.slice(i+1));}}
+    if(raw.length===2&&raw[0]==='0')pool.add(raw[1]); if(raw.length===2)pool.add(raw[1]+raw[0]);
+    const validInCol=[],validOverall=[]; for(const s of pool){const n=parseInt(s,10); if(Number.isInteger(n)&&n>=1&&n<=75){if(inCol(n))validInCol.push(n);else validOverall.push(n);}}
+    fixed[idx]=validInCol[0]??validOverall[0]??(Number.isInteger(cell.num)&&cell.num>=1&&cell.num<=75?cell.num:null);
+  });
+  const st=$("#ocrStatus"); if(st) st.textContent='Fertig.'; return fixed;
+}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+function initDefaultCorners(){
+  const st=stageRect(),pad=Math.round(Math.min(st.width,st.height)*0.12);
+  perspCorners=[{x:pad,y:pad},{x:st.width-pad,y:pad},{x:st.width-pad,y:st.height-pad},{x:pad,y:st.height-pad}];
+}
+function renderPerspHandles(){
+  if(!perspCorners)return; const [tl,tr,br,bl]=perspCorners;
+  const setHandle=(corner,pt)=>{const el=perspQuad.querySelector(`.persp-handle[data-corner="${corner}"]`); if(el){el.style.left=pt.x+"px";el.style.top=pt.y+"px";}};
+  setHandle("tl",tl);setHandle("tr",tr);setHandle("br",br);setHandle("bl",bl);
+  const w=stageRect().width,h=stageRect().height; perspLines.setAttribute("viewBox",`0 0 ${w} ${h}`);
+  perspLines.innerHTML=`<polyline fill="rgba(0,0,0,0.15)" stroke="rgba(255,255,255,0.9)" stroke-width="2" points="${tl.x},${tl.y} ${tr.x},${tr.y} ${br.x},${br.y} ${bl.x},${bl.y} ${tl.x},${tl.y}" />`;
+}
+function openPerspMode(){perspMode=true;initDefaultCorners();renderPerspHandles();show(perspOverlay);hide(cropOverlay);alignMode=false;updateButtons();}
+function closePerspMode(){perspMode=false;hide(perspOverlay);updateButtons();}
+function invert3x3(M){const a=M[0][0],b=M[0][1],c=M[0][2],d=M[1][0],e=M[1][1],f=M[1][2],g=M[2][0],h=M[2][1],i=M[2][2];
+  const A=e*i-f*h,B=-(d*i-f*g),C=d*h-e*g,D=-(b*i-c*h),E=a*i-c*g,F=-(a*h-b*g),G=b*f-c*e,H=-(a*f-c*d),I=a*e-b*d;const det=a*A+b*B+c*C||1e-12;
+  return [[A/det,D/det,G/det],[B/det,E/det,H/det],[C/det,F/det,I/det]];
+}
+function solveHomography(src,dst){
+  const A=[];for(let i=0;i<4;i++){const X=src[i].x,Y=src[i].y,x=dst[i].x,y=dst[i].y;A.push([-X,-Y,-1,0,0,0,X*x,Y*x,x]);A.push([0,0,0,-X,-Y,-1,X*y,Y*y,y]);}
+  const M=new Array(8).fill(0).map(()=>new Array(8).fill(0)),B=new Array(8).fill(0);
+  for(let r=0;r<8;r++){for(let c=0;c<8;c++)M[r][c]=A[r][c];B[r]=-A[r][8];}
+  for(let i=0;i<8;i++){let piv=i;for(let r=i+1;r<8;r++)if(Math.abs(M[r][i])>Math.abs(M[piv][i]))piv=r;
+    if(piv!==i){[M[i],M[piv]]=[M[piv],M[i]];[B[i],B[piv]]=[B[piv],B[i]];}
+    const div=M[i][i]||1e-12;for(let c=i;c<8;c++)M[i][c]/=div;B[i]/=div;
+    for(let r=0;r<8;r++)if(r!==i){const f=M[r][i];for(let c=i;c<8;c++)M[r][c]-=f*M[i][c];B[r]-=f*B[i];}
+  }
+  const h=[...B,1]; return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],h[8]]];
+}
+function mul33v(H,x,y){const w=H[2][0]*x+H[2][1]*y+H[2][2];return{x:(H[0][0]*x+H[0][1]*y+H[0][2])/w,y:(H[1][0]*x+H[1][1]*y+H[1][2])/w};}
+function expandQuad(corners,factor=1.07){
+  const st=stageRect(); const cx=(corners[0].x+corners[1].x+corners[2].x+corners[3].x)/4, cy=(corners[0].y+corners[1].y+corners[2].y+corners[3].y)/4;
+  return corners.map(p=>({x:Math.max(0,Math.min(st.width ,cx+(p.x-cx)*factor)),y:Math.max(0,Math.min(st.height,cy+(p.y-cy)*factor))}));
+}
+function warpPerspective(imgEl,stageEl,corners,targetW,targetH){
+  const src=[corners[0],corners[1],corners[2],corners[3]],dst=[{x:0,y:0},{x:targetW,y:0},{x:targetW,y:targetH},{x:0,y:targetH}];
+  const Hm=solveHomography(src,dst),Hinv=invert3x3(Hm);
+  const base=getBaseContainRect(stageEl,imgEl),effW=base.width*zoom,effH=base.height*zoom,effLeft=base.left+panX+(base.width-effW)/2,effTop=base.top+panY+(base.height-effH)/2;
+  const tmp=document.createElement("canvas"); tmp.width=targetW; tmp.height=targetH; const tctx=tmp.getContext("2d",{willReadFrequently:true});
+  const imgData=tctx.createImageData(targetW,targetH),data=imgData.data;
+  function sampleImageFactory(){const c=document.createElement("canvas"); c.width=imgEl.naturalWidth;c.height=imgEl.naturalHeight;const cctx=c.getContext("2d");cctx.drawImage(imgEl,0,0);
+    const src=cctx.getImageData(0,0,c.width,c.height); const px=(x,y)=>{const i=(y*src.width+x)*4;return[src.data[i],src.data[i+1],src.data[i+2],src.data[i+3]];};
+    return function sample(sx,sy){const u=(sx-effLeft)/effW,v=(sy-effTop)/effH; if(u<0||u>1||v<0||v>1)return[0,0,0,0]; const ix=u*imgEl.naturalWidth,iy=v*imgEl.naturalHeight;
+      const x0=Math.floor(ix),y0=Math.floor(iy),x1=Math.min(x0+1,imgEl.naturalWidth-1),y1=Math.min(y0+1,imgEl.naturalHeight-1);
+      const p00=px(x0,y0),p10=px(x1,y0),p01=px(x0,y1),p11=px(x1,y1),fx=ix-x0,fy=iy-y0,lerp=(a,b,t)=>a+(b-a)*t,mix=(a,b,c,d,tx,ty)=>lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
+      return[mix(p00[0],p10[0],p01[0],p11[0],fx,fy),mix(p00[1],p10[1],p01[1],p11[1],fx,fy),mix(p00[2],p10[2],p01[2],p11[2],fx,fy),mix(p00[3],p10[3],p01[3],p11[3],fx,fy)];
+    };
+  }
+  const sample=sampleImageFactory();
+  for(let y=0;y<targetH;y++)for(let x=0;x<targetW;x++){const stP=mul33v(Hinv,x,y),rgba=sample(stP.x,stP.y),idx=(y*targetW+x)*4;data[idx]=rgba[0];data[idx+1]=rgba[1];data[idx+2]=rgba[2];data[idx+3]=rgba[3];}
+  tctx.putImageData(imgData,0,0); return tmp;
+}
+async function applyPerspective(){
+  if(!hasImage || !perspMode || !perspCorners) return;
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const targetW=isIOS?1300:1500;
+  const targetH=Math.round(targetW*4/5);
+  const expanded=expandQuad(perspCorners,1.07);
+  const warped=warpPerspective(photoImg,photoStage,expanded,targetW,targetH);
+  try{currentURL&&URL.revokeObjectURL(currentURL);}catch{}
+  currentURL=null;
+  photoImg.onload=()=>{hasImage=true;resetView();alignMode=false;perspMode=false;updateButtons();};
+  photoImg.src=warped.toDataURL("image/jpeg",0.95);
+  await modalAlert("Perspektive angewendet. Jetzt die Zahlenerkennung ausrichten.");
+}
+perspBtn?.addEventListener("click", async ()=>{
+  if(!hasImage) return;
+  if(!perspMode){openPerspMode();}else{await applyPerspective();}
+});
+perspCancelTop?.addEventListener("click", ()=>{closePerspMode();});
+function openAlign(){alignMode=true;perspMode=false;updateButtons();updateGrid();}
+alignBtn?.addEventListener('click',async()=>{
+  if(!hasImage)return;
+  if(!alignMode){openAlign();return;}
+  const ocrStatusEl=$("#ocrStatus"),safeSetStatus=t=>{if(ocrStatusEl)ocrStatusEl.textContent=t||"";};
+  try{
+    safeSetStatus('Bereite Bild vor…'); showOcrOverlay('Bereite Bild vor…'); updateOcrProgress(0,25);
+    const rect=getCropRectPixels(); if(!rect.w||!rect.h){safeSetStatus('');hideOcrOverlay();await modalAlert('Bitte den Rahmen über die Zahlentabelle legen.');alignMode=false;updateButtons();return;}
+    const canvas=preprocessToCanvas(photoImg,rect); if(!canvas||!canvas.width||!canvas.height){safeSetStatus('');hideOcrOverlay();await modalAlert('Das Foto konnte nicht vorbereitet werden. Bitte erneut versuchen.');alignMode=false;updateButtons();return;}
+    safeSetStatus('Erkenne Zellen… 0/25'); updateOcrProgress(0,25,'Erkenne Zellen… 0/25');
+    const nums=await ocrBingoGridFromCanvas(canvas); updateOcrProgress(25,25,'Fertig erkannt'); safeSetStatus('Fertig erkannt'); await new Promise(r=>setTimeout(r,400));
+    const nb=emptyBoard(); for(let r=0;r<5;r++)for(let c=0;c<5;c++){const n=nums[r*5+c]; nb[r][c]=(Number.isInteger(n)&&n>=1&&n<=75)?String(n):"";}
+    board=nb; localStorage.setItem("bingo-board",JSON.stringify(board)); renderBoard(); boardTouched=true; validateBoard();
+    goTo('page-schein'); document.getElementById('createCard')?.scrollIntoView({behavior:'smooth',block:'start'}); boardEl.querySelector('input')?.focus();
+    hideOcrOverlay(); await modalAlert('Erkennung abgeschlossen. Zahlen wurden übertragen. Bitte prüfen!'); safeSetStatus('');
+  }catch(err){console.error(err); safeSetStatus(''); hideOcrOverlay(); await modalAlert('Konnte nicht zuverlässig erkennen. Rahmen enger/gerader ausrichten und erneut versuchen.');}
+  finally{alignMode=false;updateButtons();}
+});
+alignCancelTop?.addEventListener("click",()=>{alignMode=false;cropOverlay.classList.add('d-none');updateButtons();});
+zoomInBtn?.addEventListener("click",()=>setZoom(zoom+ZOOM_STEP));
+zoomOutBtn?.addEventListener("click",()=>setZoom(zoom-ZOOM_STEP));
+zoomResetBtn?.addEventListener("click",resetView);
+let panning=false,panStart={x:0,y:0},panAtStart={x:0,y:0};
+photoStage.addEventListener('pointerdown',e=>{
+  if(perspMode){ if(e.target.closest('.persp-handle'))return; e.preventDefault(); return; }
+  if(!alignMode)return; if(e.target.closest('#cropRect'))return;
+  panning=true; photoImg.classList.add('dragging'); panStart={x:e.clientX,y:e.clientY}; panAtStart={x:panX,y:panY}; e.preventDefault(); photoStage.setPointerCapture?.(e.pointerId);
+});
+photoStage.addEventListener('pointermove',e=>{if(!alignMode||!panning)return;const dx=e.clientX-panStart.x,dy=e.clientY-panStart.y;panX=panAtStart.x+dx;panY=panAtStart.y+dy;applyPhotoTransform();});
+const endPan=()=>{panning=false;photoImg.classList.remove('dragging');};
+photoStage.addEventListener('pointerup',endPan); photoStage.addEventListener('pointercancel',endPan);
+photoStage.addEventListener('wheel',e=>{if(!(alignMode||perspMode))return;e.preventDefault();const dir=e.deltaY>0?-1:1;setZoom(zoom+dir*ZOOM_STEP);},{passive:false});
+const pointers=new Map(); let pinchBaseDist=null,pinchBaseZoom=1; const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+photoStage.addEventListener('pointerdown',e=>{if(!(alignMode||perspMode))return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});});
+photoStage.addEventListener('pointermove',e=>{
+  if(!(alignMode||perspMode))return; if(pointers.has(e.pointerId)){pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.size===2){const [p1,p2]=[...pointers.values()],d=dist(p1,p2); if(pinchBaseDist==null){pinchBaseDist=d;pinchBaseZoom=zoom;} const scale=d/(pinchBaseDist||d); setZoom(pinchBaseZoom*scale);}
+  }
+});
+const endPinch=e=>{pointers.delete(e.pointerId); if(pointers.size<2){pinchBaseDist=null;pinchBaseZoom=zoom;}};
+photoStage.addEventListener('pointerup',endPinch); photoStage.addEventListener('pointercancel',endPinch);
+perspQuad?.addEventListener("pointerdown",(e)=>{
+  if(!perspMode) return;
+  const h=e.target.closest(".persp-handle");
+  if(!h) return;
+  perspDragging = h.getAttribute("data-corner");
+  e.target.setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+});
+perspQuad?.addEventListener("pointermove",(e)=>{
+  if(!perspMode || !perspDragging) return;
+  const st=stageRect();
+  const p={x:clamp(e.clientX - st.left, 0, st.width), y:clamp(e.clientY - st.top, 0, st.height)};
+  const idx={tl:0,tr:1,br:2,bl:3}[perspDragging];
+  perspCorners[idx]=p;
+  renderPerspHandles();
+});
+["pointerup","pointercancel"].forEach(ev=>perspQuad?.addEventListener(ev,()=>{perspDragging=null;}));
+(function init(){
+  renderBoard(); renderTickets(); renderDrawnSummaryBar(); renderOverview(); renderPicker(); updateTicketCounts();
+  if(localStorage.getItem(K_LAST_TOTAL)===null){const dset=new Set(loadDrawn());let total=0;loadTickets().forEach(t=>{total+=evaluateTicket(t.board,dset).length;});localStorage.setItem(K_LAST_TOTAL,String(total));}
+  window.addEventListener('resize',()=>{if(alignMode)updateGrid(); if(perspMode){initDefaultCorners();renderPerspHandles();}});
+})();
+</script>
+</body>
+</html>
