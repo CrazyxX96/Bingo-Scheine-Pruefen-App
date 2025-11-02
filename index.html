@@ -350,7 +350,15 @@ function isBoardCompletelyValid(){
   return true;
 }
 function resetCreateSection(){board=emptyBoard();localStorage.setItem("bingo-board",JSON.stringify(board));renderBoard();["name","serien","los","datum"].forEach(id=>{const el=$("#"+id);if(el)el.value="";});setEditMode(false);}
-$("#resetBoard").addEventListener("click",resetCreateSection);
+$("#resetBoard").addEventListener("click", async () => {
+  const ok = await modalConfirm(
+    "Wollen Sie diesen Bereich wirklich zurücksetzen?",
+    "Bestätigung erforderlich!",
+    "✅ OK",
+    "❌ Abbrechen"
+  );
+  if (ok) resetCreateSection();
+});
 $("#fillRandom").addEventListener("click",()=>{board=genRandomBoard();localStorage.setItem("bingo-board",JSON.stringify(board));renderBoard();boardTouched=true;validateBoard();});
 function setEditMode(on,ticket=null){
   editingTicketId=on&&ticket?ticket.id:null; const info=$("#editInfo");
